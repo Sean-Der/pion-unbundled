@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/pion/interceptor"
 	"github.com/pion/sdp/v3"
 	"github.com/pion/webrtc/v4"
 )
@@ -13,7 +15,21 @@ type NoBundlePeerConnection struct {
 }
 
 func NewNoBundlePeerConnection() *NoBundlePeerConnection {
-	audioPeerConnection, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	i := &interceptor.Registry{}
+
+	m := &webrtc.MediaEngine{}
+	if err := m.RegisterDefaultCodecs(); err != nil {
+		panic(err)
+	}
+
+	configureNack(m, i)
+	configureRTCPReports(i)
+	configureTWCCHeaderExtensionSender(m, i)
+	configureTWCCSender(m, i)
+
+	api := webrtc.NewAPI(webrtc.WithInterceptorRegistry(i), webrtc.WithMediaEngine(m))
+
+	audioPeerConnection, err := api.NewPeerConnection(webrtc.Configuration{})
 	if err != nil {
 		panic(err)
 	}
@@ -22,7 +38,7 @@ func NewNoBundlePeerConnection() *NoBundlePeerConnection {
 		panic(err)
 	}
 
-	videoPeerConnection, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	videoPeerConnection, err := api.NewPeerConnection(webrtc.Configuration{})
 	if err != nil {
 		panic(err)
 	}
@@ -38,6 +54,9 @@ func NewNoBundlePeerConnection() *NoBundlePeerConnection {
 	videoPeerConnection.OnICEConnectionStateChange(func(i webrtc.ICEConnectionState) {
 		fmt.Printf("Video PeerConnection ICEConnectionState(%s) \n", i.String())
 	})
+
+	audioPeerConnection.OnTrack(onTrackHandler)
+	videoPeerConnection.OnTrack(onTrackHandler)
 
 	return &NoBundlePeerConnection{
 		audioPeerConnection: audioPeerConnection,
@@ -98,7 +117,7 @@ func (n *NoBundlePeerConnection) SetRemoteDescription(answer []byte) {
 	marshaled, err = parsed.Marshal()
 	if err != nil {
 		panic(err)
-	} else if err := n.videoPeerConnection.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: string(marshaled)}); err != nil {
+	} else if err := n.videoPeerConnection.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: strings.Replace(string(marshaled), "mid:1", "mid:0", -1)}); err != nil {
 		panic(err)
 	}
 }
@@ -109,6 +128,15 @@ func (n *NoBundlePeerConnection) Close() {
 	}
 	if err := n.videoPeerConnection.Close(); err != nil {
 		panic(err)
+	}
+}
+
+func onTrackHandler(t *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
+	for {
+		if _, _, err := t.ReadRTP(); err != nil {
+			fmt.Println(err)
+			return
+		}
 	}
 }
 

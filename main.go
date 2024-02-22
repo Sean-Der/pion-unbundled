@@ -14,13 +14,14 @@ const indexHtml = `
   </head>
 
   <body>
-    <video style="width: 1280" controls autoplay id="video"> </video>
+    <video style="width: 1280" controls autoplay muted id="video"> </video>
   </body>
 
   <script>
 	const peerConnection = new RTCPeerConnection()
 
     navigator.mediaDevices.getUserMedia({audio: true, video: true}).then(stream => {
+	  document.getElementById('video').srcObject = stream
       stream.getTracks().forEach(t => peerConnection.addTrack(t))
 
   	  const wsUri = ` + "`" + `ws://${window.location.host}/websocket` + "`" + `
